@@ -135,7 +135,18 @@ export const sanitize = (raw: unknown, a: Analysis, source: EditPlan['source']):
           end: Math.max(0, Math.min(s.end, a.duration)),
           speed: s.speed && s.speed !== 1 ? Math.max(0.25, Math.min(4, s.speed)) : undefined,
         }))
-        .map((s) => ({...s, impactAt: s.impactAt !== undefined && s.impactAt > s.start && s.impactAt < s.end ? s.impactAt : undefined}))
+        .map((s, idx) => {
+          if (s.impactAt === undefined || s.impactAt <= s.start || s.impactAt >= s.end) {
+            return {...s, impactAt: undefined};
+          }
+          const padIn = idx > 0 && s.transition !== 'cut' ? 0.45 * (s.speed ?? 1) : 0;
+          const padOut = 0.45 * (s.speed ?? 1);
+          if (s.end - s.start > padIn + padOut + 0.2) {
+            const clamped = Math.max(s.start + padIn, Math.min(s.impactAt, s.end - padOut));
+            return {...s, impactAt: Math.round(clamped * 100) / 100};
+          }
+          return {...s, impactAt: v.kind === 'teaser' ? s.impactAt : undefined};
+        })
         .filter((s) => s.end - s.start >= 0.5);
       return {...v, id, segments};
     })

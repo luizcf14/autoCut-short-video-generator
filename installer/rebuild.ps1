@@ -1,4 +1,4 @@
-﻿# Recompila o instalador do AutoCut para Windows (x64).
+# Recompila o instalador do AutoCut para Windows (x64).
 # Funciona nativamente no Windows (Node.js + NSIS) ou via WSL (installer/build.sh).
 #
 # Uso:

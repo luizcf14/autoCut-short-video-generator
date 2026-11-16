@@ -120,31 +120,55 @@ const Clip: React.FC<{
   const portrait = height > width;
   const sourceTime = clip.sourceStart + (frame / fps) * clip.speed;
 
-  // Zoom lento + "soco" de zoom com tremida no instante de impacto.
+  // Entrada do trecho (imagem) e rampa de volume nas duas pontas (som).
+  const p = fadeIn > 0 ? interpolate(frame, [0, fadeIn], [0, 1], clamp) : 1;
+  const eased = 1 - (1 - p) ** 3;
+  const smoothFade = p * p * (3 - 2 * p);
+
+  // Protege as janelas de transição contra saltos de escala ou tremida.
+  const inGuard = fadeIn > 0 && clip.transition !== 'cut'
+    ? interpolate(frame, [0, fadeIn + 2], [0, 1], clamp)
+    : 1;
+  const outGuard = fadeOut > 0
+    ? interpolate(frame, [frames - fadeOut - 2, frames], [1, 0], clamp)
+    : 1;
+  const transGuard = Math.min(inGuard, outGuard);
+
+  // Zoom lento + entrada zoom unificada + "soco" de zoom suave no instante de impacto.
   let scale = clip.zoom ? interpolate(frame, [0, frames], [1, 1.14], clamp) : 1;
+  if (clip.transition === 'zoom' && fadeIn > 0) {
+    scale *= 1 + 0.18 * (1 - eased);
+  }
   let shakeX = 0;
   let shakeY = 0;
   if (clip.impactAt !== undefined) {
     const dt = (sourceTime - clip.impactAt) / clip.speed; // segundos de tela desde o impacto
-    if (dt >= 0 && dt <= 0.6) {
-      const amount = fx >= 2 ? 0.3 : 0.16;
-      scale *= interpolate(dt, [0, 0.07, 0.6], [1, 1 + amount, 1], clamp);
-      const decay = (1 - dt / 0.6) * (fx >= 2 ? 26 : 14) * unit;
-      shakeX = Math.sin(dt * 95) * decay;
-      shakeY = Math.cos(dt * 80) * decay;
+    if (dt >= 0 && dt <= 0.45) {
+      const baseAmount = fx >= 2 ? 0.22 : 0.12;
+      const amount = clip.transition === 'zoom' ? baseAmount * inGuard : baseAmount;
+      const punch = dt < 0.08
+        ? interpolate(dt, [0, 0.08], [0, 1], clamp)
+        : 1 - ((dt - 0.08) / 0.37) ** 2;
+      scale *= 1 + amount * Math.max(0, punch);
+      if (fx >= 2 && transGuard > 0) {
+        const decay = (1 - dt / 0.45) ** 2 * 10 * unit * transGuard;
+        shakeX = Math.sin(dt * Math.PI * 10) * decay;
+        shakeY = Math.cos(dt * Math.PI * 8) * decay * 0.7;
+        scale *= 1 + 0.02 * transGuard; // evita aparecer borda ao deslocar
+      }
     }
   }
 
-  // Entrada do trecho (imagem) e rampa de volume nas duas pontas (som).
-  const p = fadeIn > 0 ? interpolate(frame, [0, fadeIn], [0, 1], clamp) : 1;
-  const eased = 1 - (1 - p) ** 3;
   const enterStyle: React.CSSProperties =
-    clip.transition === 'slide' ? {transform: `translateX(${(1 - eased) * 100}%)`}
-    : clip.transition === 'zoom' ? {opacity: p, transform: `scale(${1.35 - 0.35 * eased})`}
-    : clip.transition === 'flash' ? {opacity: Math.min(1, p * 3)}
-    : {opacity: p};
+    clip.transition === 'slide'
+      ? {transform: `translate3d(${((1 - eased) * 100).toFixed(4)}%, 0, 0)`, willChange: 'transform'}
+      : clip.transition === 'flash'
+        ? {opacity: Math.min(1, p * 2.5), willChange: 'opacity'}
+        : {opacity: smoothFade, willChange: 'opacity'};
   const flash = clip.transition === 'flash' && fadeIn > 0
-    ? interpolate(frame, [0, fadeIn * 1.6], [0.9, 0], clamp) : 0;
+    ? interpolate(frame, [0, 2, fadeIn * 1.4], [0, 0.85, 0], clamp)
+    : 0;
+  const bg = frame < fadeIn && clip.transition !== 'slide' ? 'transparent' : '#000';
   const volume = (f: number) =>
     Math.min(
       fadeIn > 0 ? interpolate(f, [0, fadeIn], [0, 1], clamp) : 1,
@@ -156,10 +180,10 @@ const Clip: React.FC<{
   // preenchido com uma cópia desfocada. Caso contrário, preenche a tela.
   const compAspect = width / height;
   const wider = sourceAspect > compAspect;
-  const vw = wider ? width / visibleFraction(fit, sourceAspect, compAspect) : width;
-  const vh = vw / sourceAspect;
-  const vx = (width - vw) / 2;
-  const vy = (height - vh) / 2;
+  const vw = Math.round(wider ? width / visibleFraction(fit, sourceAspect, compAspect) : width);
+  const vh = Math.round(vw / sourceAspect);
+  const vx = Math.round((width - vw) / 2);
+  const vy = Math.round((height - vh) / 2);
   const needsBackdrop = vh < height - 1;
   const active = markers
     .filter((m) => sourceTime >= m.start && sourceTime <= m.end)
@@ -196,70 +220,77 @@ const Clip: React.FC<{
   const badge = clip.badge ?? (clip.speed < 1 ? 'CÂMERA LENTA' : undefined);
 
   return (
-    <AbsoluteFill style={{backgroundColor: fadeIn > 0 ? 'transparent' : '#000', overflow: 'hidden', ...enterStyle}}>
-      {needsBackdrop ? (
-        <OffthreadVideo
-          src={clip.src}
-          trimBefore={trim}
-          playbackRate={clip.speed}
-          muted
-          style={{position: 'absolute', width: '100%', height: '100%', objectFit: 'cover',
-            filter: `blur(${36 * unit}px) brightness(0.55)`, transform: 'scale(1.15)'}}
-        />
-      ) : null}
-      <AbsoluteFill style={{transform: `translate(${shakeX + panX}px, ${shakeY}px) scale(${scale})`}}>
-        <OffthreadVideo
-          src={clip.src}
-          trimBefore={trim}
-          playbackRate={clip.speed}
-          volume={volume}
-          pauseWhenBuffering
-          style={{position: 'absolute', left: vx, top: vy, width: vw, height: vh, objectFit: 'cover'}}
-        />
-        {visibleMarkers.map((v, i) => (
-          <MarkerView key={i} x={v.x} y={v.y} age={v.age} label={v.m.label} />
-        ))}
-      </AbsoluteFill>
-      {flash > 0 ? <AbsoluteFill style={{backgroundColor: '#fff', opacity: flash}} /> : null}
-      {badge ? (
-        <div style={{position: 'absolute', top: (portrait ? 120 : 40) * unit, right: 40 * unit, fontFamily: FONT,
-          fontSize: 30 * unit, color: ON_ACCENT, backgroundColor: ACCENT, padding: `${6 * unit}px ${16 * unit}px`,
-          borderRadius: 6 * unit}}>
-          {badge}
-        </div>
-      ) : null}
-      {clip.caption ? (
-        <div style={{position: 'absolute', left: 0, right: 0, top: portrait ? '16%' : undefined,
-          bottom: portrait ? undefined : 150 * unit, display: 'flex', justifyContent: 'center', opacity: captionOut}}>
-          <div style={{fontFamily: FONT, fontSize: (portrait ? 64 : 54) * unit, color: TEXT, textAlign: 'center',
-            maxWidth: '86%', lineHeight: 1.1, textTransform: 'uppercase', padding: `${10 * unit}px ${26 * unit}px`,
-            backgroundColor: CAPTION_BG, borderLeft: `${10 * unit}px solid ${ACCENT}`,
-            opacity: interpolate(frame, [captionDelay, captionDelay + 5], [0, 1], clamp)}}>
-            {clip.caption.split(/\s+/).filter(Boolean).map((word, i) => {
-              // As palavras entram uma a uma.
-              const w = spring({frame: frame - captionDelay - i * 3, fps, config: {damping: 14}, durationInFrames: 14});
-              return (
-                <span key={i} style={{display: 'inline-block', marginRight: '0.28em', opacity: Math.min(1, w * 2),
-                  transform: `translateY(${(1 - w) * 26 * unit}px) scale(${0.7 + 0.3 * w})`}}>
-                  {word}
-                </span>
-              );
-            })}
+    <AbsoluteFill style={{overflow: 'hidden'}}>
+      <AbsoluteFill style={{backgroundColor: bg, overflow: 'hidden', backfaceVisibility: 'hidden', ...enterStyle}}>
+        {needsBackdrop ? (
+          <OffthreadVideo
+            src={clip.src}
+            trimBefore={trim}
+            playbackRate={clip.speed}
+            muted
+            pauseWhenBuffering
+            style={{position: 'absolute', width: '100%', height: '100%', objectFit: 'cover',
+              filter: `blur(${24 * unit}px) brightness(0.55)`, transform: 'scale3d(1.12, 1.12, 1)'}}
+          />
+        ) : null}
+        <AbsoluteFill style={{
+          transform: `translate3d(${(shakeX + panX).toFixed(2)}px, ${shakeY.toFixed(2)}px, 0) scale(${scale.toFixed(5)})`,
+          willChange: 'transform',
+          backfaceVisibility: 'hidden',
+        }}>
+          <OffthreadVideo
+            src={clip.src}
+            trimBefore={trim}
+            playbackRate={clip.speed}
+            volume={volume}
+            pauseWhenBuffering
+            style={{position: 'absolute', left: vx, top: vy, width: vw, height: vh, objectFit: 'cover'}}
+          />
+          {visibleMarkers.map((v, i) => (
+            <MarkerView key={i} x={v.x} y={v.y} age={v.age} label={v.m.label} />
+          ))}
+        </AbsoluteFill>
+        {badge ? (
+          <div style={{position: 'absolute', top: (portrait ? 120 : 40) * unit, right: 40 * unit, fontFamily: FONT,
+            fontSize: 30 * unit, color: ON_ACCENT, backgroundColor: ACCENT, padding: `${6 * unit}px ${16 * unit}px`,
+            borderRadius: 6 * unit}}>
+            {badge}
           </div>
-        </div>
-      ) : null}
-      {sub ? (
-        // Na vertical fica acima da área que os botões e a descrição do Shorts cobrem.
-        <div style={{position: 'absolute', left: portrait ? '8%' : '10%', right: portrait ? '16%' : '10%',
-          bottom: portrait ? '24%' : 56 * unit, textAlign: 'center'}}>
-          <span style={{display: 'inline-block', maxWidth: '100%', boxSizing: 'border-box', fontFamily: TEXT_FONT,
-            fontWeight: 700, fontSize: (portrait ? 50 : 42) * unit, color: TEXT, lineHeight: 1.2,
-            overflowWrap: 'anywhere', textShadow: '0 2px 6px #000, 0 0 3px #000',
-            backgroundColor: 'rgba(0,0,0,0.45)', padding: `${4 * unit}px ${16 * unit}px`, borderRadius: 8 * unit}}>
-            {subtitleChunk(sub, sourceTime, portrait ? 44 : 70)}
-          </span>
-        </div>
-      ) : null}
+        ) : null}
+        {clip.caption ? (
+          <div style={{position: 'absolute', left: 0, right: 0, top: portrait ? '16%' : undefined,
+            bottom: portrait ? undefined : 150 * unit, display: 'flex', justifyContent: 'center', opacity: captionOut}}>
+            <div style={{fontFamily: FONT, fontSize: (portrait ? 64 : 54) * unit, color: TEXT, textAlign: 'center',
+              maxWidth: '86%', lineHeight: 1.1, textTransform: 'uppercase', padding: `${10 * unit}px ${26 * unit}px`,
+              backgroundColor: CAPTION_BG, borderLeft: `${10 * unit}px solid ${ACCENT}`,
+              opacity: interpolate(frame, [captionDelay, captionDelay + 5], [0, 1], clamp)}}>
+              {clip.caption.split(/\s+/).filter(Boolean).map((word, i) => {
+                // As palavras entram uma a uma.
+                const w = spring({frame: frame - captionDelay - i * 3, fps, config: {damping: 14}, durationInFrames: 14});
+                return (
+                  <span key={i} style={{display: 'inline-block', marginRight: '0.28em', opacity: Math.min(1, w * 2),
+                    transform: `translateY(${(1 - w) * 26 * unit}px) scale(${0.7 + 0.3 * w})`}}>
+                    {word}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+        {sub ? (
+          // Na vertical fica acima da área que os botões e a descrição do Shorts cobrem.
+          <div style={{position: 'absolute', left: portrait ? '8%' : '10%', right: portrait ? '16%' : '10%',
+            bottom: portrait ? '24%' : 56 * unit, textAlign: 'center'}}>
+            <span style={{display: 'inline-block', maxWidth: '100%', boxSizing: 'border-box', fontFamily: TEXT_FONT,
+              fontWeight: 700, fontSize: (portrait ? 50 : 42) * unit, color: TEXT, lineHeight: 1.2,
+              overflowWrap: 'anywhere', textShadow: '0 2px 6px #000, 0 0 3px #000',
+              backgroundColor: 'rgba(0,0,0,0.45)', padding: `${4 * unit}px ${16 * unit}px`, borderRadius: 8 * unit}}>
+              {subtitleChunk(sub, sourceTime, portrait ? 44 : 70)}
+            </span>
+          </div>
+        ) : null}
+      </AbsoluteFill>
+      {flash > 0 ? <AbsoluteFill style={{backgroundColor: '#fff', opacity: flash, pointerEvents: 'none'}} /> : null}
     </AbsoluteFill>
   );
 };
@@ -328,7 +359,7 @@ export const AutoCut: React.FC<AutoCutProps> = (props) => {
         />
       ) : null}
       {clips.map((clip, i) => (
-        <Sequence key={i} from={starts[i]} durationInFrames={frames[i]} premountFor={fps}>
+        <Sequence key={i} from={starts[i]} durationInFrames={frames[i]} premountFor={Math.round(fps * 0.5)}>
           <Clip
             clip={clip}
             subtitles={subtitles}

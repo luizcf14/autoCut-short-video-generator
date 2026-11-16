@@ -174,9 +174,10 @@ export const renderVideo = async (
   let doneSec = 0;
   for (const [i, s] of segs.entries()) {
     const dur = s.end - s.start;
+    const padDur = Math.min(dur + 0.15 * (s.speed ?? 1), Math.max(0.1, analysis.duration - s.start));
     await encode(
-      (codec) => ['-y', '-ss', s.start.toFixed(3), '-i', original, '-t', dur.toFixed(3),
-        '-vf', "scale=-2:'min(1080,ih)'", '-r', '30', ...codec,
+      (codec) => ['-y', '-ss', s.start.toFixed(3), '-i', original, '-t', padDur.toFixed(3),
+        '-vf', "fps=30,scale=-2:'min(1080,ih)'", ...codec,
         '-g', '30', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2',
         '-movflags', '+faststart', path.join(clipsDir, `${i}.mp4`)],
       18,

@@ -78,8 +78,8 @@ export const analyze = async (file: string, dir: string, progress: Progress): Pr
 
   progress(0.02, 'Criando versão leve para prévia');
   await encode(
-    (codec) => ['-y', '-i', file, '-vf', 'scale=-2:540', '-r', '30', ...codec,
-      '-g', '30', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '96k', '-ac', '2',
+    (codec) => ['-y', '-i', file, '-vf', 'fps=30,scale=-2:540', ...codec,
+      '-g', '15', '-bf', '0', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '96k', '-ac', '2',
       '-movflags', '+faststart', proxy],
     26,
     {onTime: (t) => progress(0.02 + 0.68 * Math.min(1, t / info.duration), 'Criando versão leve para prévia')},

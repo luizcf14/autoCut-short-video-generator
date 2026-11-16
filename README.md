@@ -88,3 +88,4 @@ Para gerar novamente o instalador do Windows (`installer/out/AutoCut-Setup-<vers
 
 - **No Windows:** instale o [NSIS](https://nsis.sourceforge.io/) (`winget install NSIS.NSIS`) e dê dois cliques em `recompilar-instalador.bat` (ou rode `npm run installer:win`). Para instalar o NSIS automaticamente na primeira vez: `recompilar-instalador.bat -InstallNsis`. Para limpar o cache antes de compilar: `recompilar-instalador.bat -Clean`.
 - **No Linux ou WSL:** instale o NSIS (`sudo apt install nsis`) e rode `npm run installer` (`bash installer/build.sh`).
+- **Pelo GitHub Actions (automático):** a cada push na `main`, envio de tag `vX.Y.Z` ou clique em *Run workflow* na aba **Actions**, o workflow `.github/workflows/release.yml` compila o `AutoCut-Setup-<versão>.exe` e o disponibiliza para download na aba **Releases** do repositório.

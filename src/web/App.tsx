@@ -190,7 +190,9 @@ export const App: React.FC = () => {
 
   const props = useMemo(() => {
     if (!project?.analysis || !video || !plan) return null;
-    const proxy = `/media/${project.id}/proxy.mp4`;
+    // O sufixo #preview evita que o Remotion anexe #t=inicio,fim, que pausa
+    // prematuramente trechos acelerados ou arredondados antes da transição terminar.
+    const proxy = `/media/${project.id}/proxy.mp4#preview`;
     return buildProps(video, extrasFrom(project.analysis, plan, previewStyle), (_i, s) => ({
       src: proxy,
       offsetSec: s.start,

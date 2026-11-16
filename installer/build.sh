@@ -16,6 +16,11 @@ echo "== AutoCut $VERSION | Node.js para Windows $NODE_VERSION"
 rm -rf "$STAGE"
 mkdir -p "$STAGE" "$OUT" "$BUILD/dl"
 
+if [ ! -d "$ROOT/node_modules" ]; then
+  echo "== Instalando dependências da raiz (npm ci)"
+  (cd "$ROOT" && npm ci --no-audit --no-fund)
+fi
+
 echo "== 1/6 Compilando a tela (vite build)"
 (cd "$ROOT" && npx vite build --logLevel warn)
 
@@ -35,13 +40,19 @@ test -d "$STAGE/node_modules/@esbuild/win32-x64"
 # Binários de outras plataformas que tenham vindo por engano.
 rm -rf "$STAGE"/node_modules/@remotion/compositor-{linux,darwin}* "$STAGE"/node_modules/@esbuild/{linux,darwin}* || true
 
-echo "== 4/6 Node.js para Windows (pacote node-win-x64 do npm)"
-if [ ! -f "$BUILD/dl/node-win-x64-$NODE_VERSION.tgz" ]; then
-  (cd "$BUILD/dl" && npm pack "node-win-x64@$NODE_VERSION" --silent >/dev/null)
-fi
+echo "== 4/6 Node.js para Windows ($NODE_VERSION)"
 mkdir -p "$STAGE/node"
-tar xzf "$BUILD/dl/node-win-x64-$NODE_VERSION.tgz" -C "$BUILD/dl" package/bin/node.exe
-mv "$BUILD/dl/package/bin/node.exe" "$STAGE/node/node.exe"
+if [ -f "$BUILD/dl/node-$NODE_VERSION-win-x64.exe" ]; then
+  cp "$BUILD/dl/node-$NODE_VERSION-win-x64.exe" "$STAGE/node/node.exe"
+elif command -v curl >/dev/null 2>&1 && curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/win-x64/node.exe" -o "$BUILD/dl/node-$NODE_VERSION-win-x64.exe"; then
+  cp "$BUILD/dl/node-$NODE_VERSION-win-x64.exe" "$STAGE/node/node.exe"
+else
+  if [ ! -f "$BUILD/dl/node-win-x64-$NODE_VERSION.tgz" ]; then
+    (cd "$BUILD/dl" && npm pack "node-win-x64@$NODE_VERSION" --silent >/dev/null)
+  fi
+  tar xzf "$BUILD/dl/node-win-x64-$NODE_VERSION.tgz" -C "$BUILD/dl" package/bin/node.exe
+  mv "$BUILD/dl/package/bin/node.exe" "$STAGE/node/node.exe"
+fi
 
 echo "== 5/6 Ajustes para Windows"
 # Quebras de linha do Windows nos arquivos que o usuário abre ou o cmd executa.

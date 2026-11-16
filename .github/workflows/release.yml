@@ -1,0 +1,100 @@
+name: Build Installer & Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versão da Release no formato X.Y.Z (vazio usa a versão do package.json)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installer:
+    name: Gerar Instalador Windows (.exe)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configurar Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Instalar NSIS (makensis)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nsis
+
+      - name: Definir versão do instalador
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            RAW="$INPUT_VERSION"
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            RAW="$GITHUB_REF_NAME"
+          else
+            RAW="$(node -p "require('./package.json').version")"
+          fi
+          VERSION="${RAW#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Erro: a versão '$VERSION' precisa seguir o formato numérico X.Y.Z (ex.: 0.1.0) exigido pelo NSIS." >&2
+            exit 1
+          fi
+          CURRENT="$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$CURRENT" ]; then
+            npm pkg set version="$VERSION"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Instalar dependências e validar tipos
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+
+      - name: Compilar instalador (.exe)
+        run: bash installer/build.sh
+
+      - name: Salvar instalador como artefato do workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoCut-Setup-${{ steps.meta.outputs.version }}
+          path: installer/out/AutoCut-Setup-${{ steps.meta.outputs.version }}.exe
+          if-no-files-found: error
+
+      - name: Atualizar tag da Release (push em main ou disparo manual)
+        if: github.ref_type != 'tag'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "${{ steps.meta.outputs.tag }}" "${{ github.sha }}"
+          git push origin "refs/tags/${{ steps.meta.outputs.tag }}" --force
+
+      - name: Publicar Release no GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: AutoCut ${{ steps.meta.outputs.tag }}
+          files: installer/out/AutoCut-Setup-${{ steps.meta.outputs.version }}.exe
+          generate_release_notes: true
+          make_latest: 'true'
