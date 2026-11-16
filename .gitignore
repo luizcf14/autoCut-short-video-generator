@@ -1,0 +1,8 @@
+node_modules
+work
+videos
+prontos
+.env
+installer/.build
+installer/out
+dist

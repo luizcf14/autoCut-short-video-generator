@@ -1,0 +1,10 @@
+{
+  "name": "Kartec",
+  "channelName": "Kartec",
+  "accent": "#e10600",
+  "textColor": "#ffffff",
+  "captionBg": "#111111",
+  "titleFont": "Arial Black",
+  "textFont": "Segoe UI",
+  "prompt": "Vídeos de oficina mecânica: diagnóstico e conserto de carros e caminhões, filmados em primeira pessoa pelo mecânico. Mantenha a sequência do raciocínio (sintoma, investigação, causa, solução) e não corte a explicação do defeito. Corte esperas, deslocamentos e trechos repetidos. Letreiros curtos nomeiam a peça ou a etapa (ex.: \"Válvula de expansão\", \"Achamos o curto\"). Use zoom lento quando a peça é mostrada de perto e impacto só no momento em que a causa é encontrada. Sem replays. Como a gravação costuma ter legenda na imagem, use o enquadramento \"wide\" nos Shorts."
+}

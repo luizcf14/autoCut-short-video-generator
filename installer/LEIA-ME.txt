@@ -1,0 +1,28 @@
+AutoCut
+=======
+
+Abrir: atalho "AutoCut" na área de trabalho ou no menu Iniciar. Abre uma janela preta
+(o servidor) e a tela do AutoCut no navegador. Feche a janela preta para encerrar.
+
+Configurar: botão "Configurações" no canto superior direito da tela do AutoCut. Ali ficam
+as chaves do Claude, do Gemini e da ElevenLabs (com botão para testar), o modelo do Claude,
+as pastas e as opções de placa de vídeo. Vale na hora, sem reiniciar.
+Sem a chave do Claude o programa funciona, mas monta os cortes só pelo áudio.
+O atalho "Configurações avançadas (.env)" abre o mesmo arquivo no Bloco de Notas.
+
+Vídeos: coloque as gravações na pasta "videos" (atalho "Pasta de vídeos" no menu Iniciar),
+ou aponte VIDEOS_DIR no .env para outra pasta. Os vídeos prontos vão para "videos\prontos".
+
+Espaço em disco: a pasta "work" guarda arquivos temporários (cerca de 1/3 do tamanho de
+cada vídeo bruto). Se o disco C estiver cheio, aponte WORK_DIR no .env para outro disco.
+
+Primeira exportação: se não houve internet durante a instalação, o AutoCut baixa um
+navegador interno (cerca de 100 MB) na primeira exportação.
+
+Opcional:
+- Música gerada por IA: GEMINI_API_KEY ou ELEVENLABS_API_KEY no .env.
+- Legendas da fala: instale o Python e depois "pip install openai-whisper".
+- Placa de vídeo NVIDIA: RENDER_NVENC=1 no .env.
+
+Desinstalar: "Configurações do Windows > Aplicativos" ou atalho "Desinstalar AutoCut".
+Seus vídeos nunca são apagados.
