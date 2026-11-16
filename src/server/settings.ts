@@ -19,8 +19,8 @@ export const SETTINGS = {
   OUTPUT_DIR: {dir: true},
   WORK_DIR: {dir: true},
   MUSIC_DIR: {dir: true},
-  RENDER_NVENC: {choices: ['', '1']},
-  RENDER_GL: {choices: ['', 'angle']},
+  RENDER_NVENC: {choices: ['', '1', '0']},
+  RENDER_GL: {choices: ['', 'angle', '0']},
   RENDER_CONCURRENCY: {choices: ['', '50%', '75%', '100%']},
   MAX_FRAMES: {number: [16, 150]},
 } as const satisfies Record<string, {secret?: boolean; dir?: boolean; choices?: readonly string[]; number?: readonly [number, number]}>;

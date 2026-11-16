@@ -223,17 +223,17 @@ export const Settings: React.FC<{onClose: () => void; onSaved: () => void}> = ({
       </div>
       <div className="grid2">
         <div className="field">
-          <label><input type="checkbox" checked={form.RENDER_NVENC === '1'} onChange={(e) => set('RENDER_NVENC', e.target.checked ? '1' : '')} /> Codificar com placa NVIDIA (NVENC)</label>
-          <div className="hint">Mais rápido com placas GeForce/RTX. Se a placa falhar, o AutoCut volta ao processador sozinho.</div>
+          <label><input type="checkbox" checked={form.RENDER_NVENC !== '0'} onChange={(e) => set('RENDER_NVENC', e.target.checked ? '1' : '0')} /> Codificar com placa NVIDIA (NVENC)</label>
+          <div className="hint">Ativado por padrão: usa GeForce/RTX automaticamente se existir e volta ao processador sozinho caso contrário.</div>
         </div>
         <div className="field">
-          <label><input type="checkbox" checked={form.RENDER_GL === 'angle'} onChange={(e) => set('RENDER_GL', e.target.checked ? 'angle' : '')} /> Desenhar os quadros com a placa de vídeo</label>
-          <div className="hint">Ajuda nos Shorts com fundo desfocado. Desligue se a exportação falhar.</div>
+          <label><input type="checkbox" checked={form.RENDER_GL !== '0'} onChange={(e) => set('RENDER_GL', e.target.checked ? 'angle' : '0')} /> Desenhar os quadros com a placa de vídeo</label>
+          <div className="hint">Ativado por padrão no Windows (ANGLE): acelera desfoque e efeitos sem perda de qualidade. Desligue só se a exportação falhar.</div>
         </div>
         <div className="field">
           <label htmlFor="RENDER_CONCURRENCY">Núcleos do processador na exportação</label>
           <select id="RENDER_CONCURRENCY" value={form.RENDER_CONCURRENCY ?? ''} onChange={(e) => set('RENDER_CONCURRENCY', e.target.value)}>
-            <option value="">Padrão (metade)</option>
+            <option value="">Padrão (75% dos núcleos)</option>
             <option value="50%">50%</option>
             <option value="75%">75%</option>
             <option value="100%">100% (o computador fica lento)</option>

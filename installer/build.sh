@@ -54,6 +54,12 @@ else
   mv "$BUILD/dl/package/bin/node.exe" "$STAGE/node/node.exe"
 fi
 
+if [ ! -f "$BUILD/dl/yt-dlp.exe" ]; then
+  echo "== Baixando yt-dlp.exe (extrator do YouTube)"
+  curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -o "$BUILD/dl/yt-dlp.exe"
+fi
+cp "$BUILD/dl/yt-dlp.exe" "$STAGE/node/yt-dlp.exe"
+
 echo "== 5/6 Ajustes para Windows"
 # Quebras de linha do Windows nos arquivos que o usuário abre ou o cmd executa.
 for f in AutoCut.cmd LEIA-ME.txt .env.example; do sed -i 's/\r\?$/\r/' "$STAGE/$f"; done

@@ -99,6 +99,9 @@ export const App: React.FC = () => {
     }
   });
   const [outputs, setOutputs] = useState<Record<string, string>>({});
+  const [ytUrl, setYtUrl] = useState('');
+  const [ytQuality, setYtQuality] = useState<'max' | '1080'>('max');
+  const [ytBusy, setYtBusy] = useState(false);
   const player = useRef<PlayerRef>(null);
 
   const busy = job?.status === 'running';
@@ -148,6 +151,23 @@ export const App: React.FC = () => {
 
   const act = (fn: () => Promise<void>) => () => {
     fn().catch(() => undefined);
+  };
+
+  const downloadFromYoutube = async () => {
+    if (busy || !ytUrl.trim()) return;
+    setYtBusy(true);
+    try {
+      const res = (await runJob('/api/youtube/download', {
+        url: ytUrl.trim(),
+        quality: ytQuality,
+      })) as {id: string; file: string; sizeMB: number};
+      setYtUrl('');
+      setTab(0);
+      await loadVideos();
+      await loadProject(res.id);
+    } finally {
+      setYtBusy(false);
+    }
   };
 
   const savePlan = async () => {
@@ -276,7 +296,51 @@ export const App: React.FC = () => {
               <button className="small primary" onClick={() => setShowSettings(true)}>Configurar agora</button>
             </div>
           ) : null}
-          {!project ? <p className="dim">Escolha um vídeo na lista ao lado para começar.</p> : null}
+
+          <section className="ytbox">
+            <h2>Baixar vídeo do YouTube (MP4)</h2>
+            <form
+              className="row"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void downloadFromYoutube().catch(() => undefined);
+              }}
+            >
+              <input
+                className="grow"
+                type="text"
+                spellCheck={false}
+                placeholder="Cole aqui o link do vídeo do YouTube (watch?v=..., youtu.be/... ou live)…"
+                value={ytUrl}
+                disabled={busy}
+                onChange={(e) => setYtUrl(e.target.value)}
+              />
+              <select
+                value={ytQuality}
+                disabled={busy}
+                onChange={(e) => setYtQuality(e.target.value as 'max' | '1080')}
+                title="Resolução máxima do arquivo MP4 baixado"
+              >
+                <option value="max">Altíssima definição (até 4K Ultra HD)</option>
+                <option value="1080">Full HD (1080p · mais rápido)</option>
+              </select>
+              <button type="submit" className="primary" disabled={busy || !ytUrl.trim()}>
+                {ytBusy ? 'Baixando…' : '⬇ Baixar MP4'}
+              </button>
+            </form>
+            <div className="dim" style={{fontSize: 12, marginTop: 6}}>
+              Salva o MP4 em alta definição na pasta de vídeos brutos e já abre o vídeo para analisar e extrair Shorts.
+            </div>
+            {(ytBusy || !project) && busy && job ? (
+              <>
+                <div className="dim" style={{marginTop: 12}}>{job.message} ({Math.round(job.progress * 100)}%)</div>
+                <div className="progress"><div style={{width: `${job.progress * 100}%`}} /></div>
+              </>
+            ) : null}
+            {(ytBusy || !project) && error ? <div className="error">{error}</div> : null}
+          </section>
+
+          {!project ? <p className="dim">Cole um link do YouTube acima para baixar o MP4 ou escolha um vídeo já salvo na lista ao lado.</p> : null}
 
           {project ? (
             <section>
@@ -395,13 +459,13 @@ export const App: React.FC = () => {
                   </div>
                 </div>
               ) : null}
-              {busy && job ? (
+              {!ytBusy && busy && job ? (
                 <>
                   <div className="dim" style={{marginTop: 12}}>{job.message} ({Math.round(job.progress * 100)}%)</div>
                   <div className="progress"><div style={{width: `${job.progress * 100}%`}} /></div>
                 </>
               ) : null}
-              {error ? <div className="error">{error}</div> : null}
+              {!ytBusy && error ? <div className="error">{error}</div> : null}
             </section>
           ) : null}
 

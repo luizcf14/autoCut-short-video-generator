@@ -194,6 +194,13 @@ if ((-not $NodeVersion) -and ($HostArch -eq 'x64')) {
   Remove-Item -Recurse -Force $PkgExtract -ErrorAction SilentlyContinue
 }
 
+$YtDlpCache = Join-Path (Join-Path $Build 'dl') 'yt-dlp.exe'
+if (-not (Test-Path $YtDlpCache)) {
+  Write-Host '== Baixando yt-dlp.exe (extrator do YouTube)...'
+  Invoke-WebRequest -Uri 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' -OutFile $YtDlpCache -UseBasicParsing
+}
+Copy-Item -Force $YtDlpCache (Join-Path $StageNodeDir 'yt-dlp.exe')
+
 Write-Host '== 5/6 Ajustando quebras de linha para Windows'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 foreach ($f in @('AutoCut.cmd', 'LEIA-ME.txt', '.env.example')) {

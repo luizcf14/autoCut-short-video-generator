@@ -11,6 +11,10 @@ export const envFile = path.join(root, '.env');
 /** Lê as configurações do ambiente (.env já carregado em process.env). */
 const compute = () => {
   const videosDir = path.resolve(process.env.VIDEOS_DIR || path.join(root, 'videos'));
+  const rawGl = (process.env.RENDER_GL || '').trim().toLowerCase();
+  const gl = rawGl === '0' || rawGl === 'off' || rawGl === 'false'
+    ? undefined
+    : (rawGl || (process.platform === 'win32' ? 'angle' : undefined)) as 'angle' | 'egl' | 'vulkan' | 'swangle' | undefined;
   return {
     port: Number(process.env.PORT || 3001),
     videosDir,
@@ -27,9 +31,9 @@ const compute = () => {
     whisperCmd: process.env.WHISPER_CMD || 'whisper',
     whisperModel: process.env.WHISPER_MODEL || 'small',
     maxFrames: Number(process.env.MAX_FRAMES || 48),
-    // Aceleração por placa de vídeo (opcional, desligada por padrão).
-    gl: (process.env.RENDER_GL || undefined) as 'angle' | 'egl' | 'vulkan' | 'swangle' | undefined,
-    nvenc: /^(1|true|sim)$/i.test(process.env.RENDER_NVENC || ''),
+    // Aceleração por placa de vídeo (ativa por padrão com fallback automático para CPU).
+    gl,
+    nvenc: !/^(0|false|off|nao|não)$/i.test((process.env.RENDER_NVENC || '').trim()),
     concurrency: process.env.RENDER_CONCURRENCY || undefined,
     browserExecutable: process.env.REMOTION_BROWSER_EXECUTABLE || undefined,
   };

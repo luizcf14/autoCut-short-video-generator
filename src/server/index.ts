@@ -14,6 +14,7 @@ import {buildTeaser, detectPointing, planHeuristic, planWithClaude, refineWithCl
 import {renderVideo} from './render';
 import {generateMusic, musicProvider, PROVIDER_LABEL} from './music';
 import {readSettings, saveSettings, testKey} from './settings';
+import {downloadYoutubeVideo, validateYoutubeUrl, type YoutubeQuality} from './youtube';
 
 const app = express();
 app.use(express.json({limit: '5mb'}));
@@ -165,6 +166,12 @@ app.delete('/api/styles/:id', wrap(async (req, res) => {
 }));
 
 app.get('/api/videos', wrap(async (_req, res) => res.json(await listVideos())));
+
+app.post('/api/youtube/download', wrap(async (req, res) => {
+  const url = validateYoutubeUrl(String(req.body?.url ?? ''));
+  const quality: YoutubeQuality = req.body?.quality === '1080' ? '1080' : 'max';
+  res.json(startJob((progress) => downloadYoutubeVideo(url, quality, progress)));
+}));
 
 app.get('/api/projects/:id', wrap(async (req, res) => {
   const {dir: _d, original: _o, ...p} = await project(req.params.id);

@@ -11,6 +11,8 @@ type RunOpts = {
   onTime?: (sec: number) => void;
   onStdout?: (chunk: Buffer) => void;
   allowFail?: boolean;
+  /** Usa preset mais rápido para arquivos intermediários sem reduzir qualidade final. */
+  fast?: boolean;
 };
 
 /** Roda o ffmpeg e devolve o stderr completo. */
@@ -56,21 +58,25 @@ export const probe = async (file: string) => {
   };
 };
 
-let nvencWorks = config.nvenc;
+let nvencSupported: boolean | null = null;
 
 /**
  * Roda um comando de conversão escolhendo o codificador de vídeo: a placa NVIDIA (NVENC)
- * quando RENDER_NVENC=1, ou o processador (libx264). Se a placa falhar uma vez, volta
- * para o processador e não tenta mais nesta execução.
- * `quality` segue a escala do x264 (menor = melhor): 18 para o vídeo final, 26 para a prévia.
+ * quando config.nvenc está ativo (padrão, com fallback automático) ou o processador (libx264).
+ * `quality` segue a escala do x264 (menor = melhor): 18 para o vídeo final, 25/26 para a prévia.
  */
 export const encode = async (build: (videoCodec: string[]) => string[], quality: number, opts: RunOpts = {}) => {
-  const x264 = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(quality)];
-  if (nvencWorks) {
+  const x264 = ['-c:v', 'libx264', '-preset', opts.fast ? 'ultrafast' : 'veryfast', '-crf', String(quality)];
+  if (config.nvenc && nvencSupported !== false) {
     try {
-      return await ffmpeg(build(['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(quality + 2), '-b:v', '0']), opts);
+      const res = await ffmpeg(
+        build(['-c:v', 'h264_nvenc', '-preset', opts.fast ? 'p1' : 'p4', '-rc', 'vbr', '-cq', String(quality + 1), '-b:v', '0']),
+        opts,
+      );
+      nvencSupported = true;
+      return res;
     } catch (e) {
-      nvencWorks = false;
+      nvencSupported = false;
       console.warn('NVENC falhou; usando o processador para codificar.', e instanceof Error ? e.message : e);
     }
   }

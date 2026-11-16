@@ -10,8 +10,10 @@ as pastas e as opções de placa de vídeo. Vale na hora, sem reiniciar.
 Sem a chave do Claude o programa funciona, mas monta os cortes só pelo áudio.
 O atalho "Configurações avançadas (.env)" abre o mesmo arquivo no Bloco de Notas.
 
-Vídeos: coloque as gravações na pasta "videos" (atalho "Pasta de vídeos" no menu Iniciar),
-ou aponte VIDEOS_DIR no .env para outra pasta. Os vídeos prontos vão para "videos\prontos".
+Vídeos: cole o link de um vídeo do YouTube direto na tela inicial para baixar o MP4 em
+altíssima definição, ou coloque suas gravações na pasta "videos" (atalho "Pasta de vídeos"
+no menu Iniciar), ou aponte VIDEOS_DIR no .env para outra pasta. Os vídeos prontos vão para
+"videos\prontos".
 
 Espaço em disco: a pasta "work" guarda arquivos temporários (cerca de 1/3 do tamanho de
 cada vídeo bruto). Se o disco C estiver cheio, aponte WORK_DIR no .env para outro disco.

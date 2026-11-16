@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import {existsSync} from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {bundle} from '@remotion/bundler';
-import {ensureBrowser, RenderInternals, renderMedia, selectComposition} from '@remotion/renderer';
+import {ensureBrowser, openBrowser, RenderInternals, renderMedia, selectComposition, type Bitrate, type ChromiumOptions} from '@remotion/renderer';
 import {
   buildProps, expand, extrasFrom, FPS, layout, MUSIC_FADE_IN, MUSIC_FADE_OUT,
   type Quality, type Style,
@@ -56,32 +57,33 @@ const prepareBrowser = async (progress: Progress) => {
   }
 };
 
-let nvencOk: boolean | null = null;
+const nvencOk = new Map<'h264' | 'h265', boolean>();
 
 /**
- * Testa uma vez se o ffmpeg do Remotion consegue codificar com a placa NVIDIA,
+ * Testa uma vez por codec se o ffmpeg do Remotion consegue codificar com a placa NVIDIA,
  * convertendo alguns quadros de um trecho já recortado. Sem esse teste, uma falha
  * da placa no meio da renderização derrubaria o programa.
  */
-const nvencAvailable = async (sample: string) => {
-  if (nvencOk === null) {
+const nvencAvailable = async (sample: string, codec: 'h264' | 'h265') => {
+  if (!nvencOk.has(codec)) {
+    const encoder = codec === 'h265' ? 'hevc_nvenc' : 'h264_nvenc';
     try {
       await RenderInternals.callFf({
         bin: 'ffmpeg',
-        args: ['-hide_banner', '-i', sample, '-frames:v', '10', '-an', '-c:v', 'h264_nvenc', '-f', 'null', '-'],
+        args: ['-hide_banner', '-i', sample, '-frames:v', '10', '-an', '-c:v', encoder, '-f', 'null', '-'],
         indent: false,
         logLevel: 'error',
         binariesDirectory: null,
         cancelSignal: undefined,
       });
-      nvencOk = true;
-      console.log('NVENC disponível: codificando o vídeo final com a placa NVIDIA.');
-    } catch (e) {
-      nvencOk = false;
-      console.warn('NVENC indisponível; codificando o vídeo final pelo processador.');
+      nvencOk.set(codec, true);
+      console.log(`NVENC (${encoder}) disponível: codificando o vídeo final com a placa NVIDIA.`);
+    } catch {
+      nvencOk.set(codec, false);
+      console.warn(`NVENC (${encoder}) indisponível; codificando o vídeo final pelo processador.`);
     }
   }
-  return nvencOk;
+  return nvencOk.get(codec) ?? false;
 };
 
 /** atempo só aceita de 0,5 a 2 por vez; encadeia para chegar em 0,25x ou 4x. */
@@ -144,10 +146,10 @@ const buildAudio = async (props: AutoCutProps, clipFiles: string[], musicFile: s
  * `bitrate` vale para a placa NVIDIA, que não aceita crf e, sem um valor, usaria uma taxa
  * muito baixa. Os valores são para 1080p a 30 quadros por segundo.
  */
-const QUALITY: Record<Quality, {codec: 'h264' | 'h265'; crf: number; bitrate: string}> = {
-  alta: {codec: 'h264', crf: 18, bitrate: '12M'},
-  equilibrada: {codec: 'h264', crf: 23, bitrate: '6M'},
-  compacta: {codec: 'h265', crf: 26, bitrate: '4M'},
+const QUALITY: Record<Quality, {codec: 'h264' | 'h265'; crf: number; bitrate: Bitrate}> = {
+  alta: {codec: 'h264', crf: 18, bitrate: '14M'},
+  equilibrada: {codec: 'h264', crf: 23, bitrate: '7M'},
+  compacta: {codec: 'h265', crf: 26, bitrate: '5M'},
 };
 
 export const renderVideo = async (
@@ -166,43 +168,71 @@ export const renderVideo = async (
   await fs.mkdir(clipsDir, {recursive: true});
   await fs.mkdir(config.outputDir, {recursive: true});
 
-  // 1. Recorta do arquivo original só os trechos usados (em qualidade alta).
-  // (um trecho com replay vira dois pedaços; a lista é a mesma usada na prévia)
+  // Pré-aquece o empacotamento Remotion e o navegador em paralelo com o recorte dos trechos.
+  const bundlePromise = getBundle();
+  bundlePromise.catch(() => undefined);
+  const browserReadyPromise = prepareBrowser((_f, m) => progress(0.02, m));
+  browserReadyPromise.catch(() => undefined);
+
+  // 1. Recorta em paralelo do arquivo original só os trechos usados (near-lossless CRF 15).
   const extras = extrasFrom(analysis, plan, style, `http://127.0.0.1:${config.port}/music`);
   const segs = expand(video, extras.fx);
-  const totalSec = segs.reduce((n, s) => n + (s.end - s.start), 0);
-  let doneSec = 0;
-  for (const [i, s] of segs.entries()) {
-    const dur = s.end - s.start;
-    const padDur = Math.min(dur + 0.15 * (s.speed ?? 1), Math.max(0.1, analysis.duration - s.start));
-    await encode(
-      (codec) => ['-y', '-ss', s.start.toFixed(3), '-i', original, '-t', padDur.toFixed(3),
-        '-vf', "fps=30,scale=-2:'min(1080,ih)'", ...codec,
-        '-g', '30', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '48000', '-ac', '2',
-        '-movflags', '+faststart', path.join(clipsDir, `${i}.mp4`)],
-      18,
-      {onTime: (t) => progress(0.3 * ((doneSec + Math.min(t, dur)) / totalSec), `Recortando trecho ${i + 1} de ${segs.length}`)},
-    );
-    doneSec += dur;
-  }
+  const segDurs = segs.map((s) => Math.max(0.1, s.end - s.start));
+  const totalSec = Math.max(0.1, segDurs.reduce((a, b) => a + b, 0));
+  const segProgress = new Array<number>(segs.length).fill(0);
+  let completedCount = 0;
+  const reportCutProgress = () => {
+    const done = segProgress.reduce((a, b) => a + b, 0);
+    const pct = Math.min(1, done / totalSec);
+    progress(0.28 * pct, `Recortando trechos (${Math.min(completedCount + 1, segs.length)} de ${segs.length})`);
+  };
 
-  // 2. Renderiza com o Remotion.
-  await prepareBrowser(progress);
+  const cpuCount = os.cpus().length;
+  const cutConcurrency = Math.min(
+    segs.length,
+    config.nvenc ? 3 : Math.max(2, Math.min(4, Math.floor(cpuCount / 2))),
+  );
+  let nextIdx = 0;
+  const runWorker = async () => {
+    while (nextIdx < segs.length) {
+      const i = nextIdx++;
+      const s = segs[i];
+      const dur = segDurs[i];
+      const padDur = Math.min(dur + 0.15 * (s.speed ?? 1), Math.max(0.1, analysis.duration - s.start));
+      const audioArgs = analysis.hasAudio
+        ? ['-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2']
+        : ['-an'];
+      await encode(
+        (codec) => ['-y', '-ss', s.start.toFixed(3), '-i', original, '-t', padDur.toFixed(3),
+          '-vf', "fps=30,scale=-2:'min(1080,ih)'", ...codec,
+          '-g', '30', '-pix_fmt', 'yuv420p', ...audioArgs,
+          path.join(clipsDir, `${i}.mp4`)],
+        15,
+        {
+          fast: true,
+          onTime: (t) => {
+            segProgress[i] = Math.max(segProgress[i], Math.min(t, dur));
+            reportCutProgress();
+          },
+        },
+      );
+      segProgress[i] = dur;
+      completedCount++;
+      reportCutProgress();
+    }
+  };
+  await Promise.all(Array.from({length: Math.max(1, cutConcurrency)}, runWorker));
+
+  // 2. Renderiza com o Remotion (navegador compartilhado + áudio montado em paralelo).
+  await browserReadyPromise;
   progress(0.3, 'Preparando o Remotion');
-  const serveUrl = await getBundle();
+  const serveUrl = await bundlePromise;
   const base = `http://127.0.0.1:${config.port}/media/${projectId}/clips/${video.id}`;
   const inputProps = buildProps(video, extras, (i) => ({
     src: `${base}/${i}.mp4`,
     offsetSec: 0,
   }));
-  const chromiumOptions = config.gl ? {gl: config.gl} : undefined;
-  const composition = await selectComposition({
-    serveUrl,
-    id: 'AutoCut',
-    inputProps,
-    chromiumOptions,
-    browserExecutable: config.browserExecutable,
-  });
+
   const output = path.join(config.outputDir, `${slug(analysis.file)}_${video.id}.mp4`);
   const silent = path.join(clipsDir, 'video.mp4');
   // path.basename impede que o nome da música aponte para fora da pasta de músicas.
@@ -211,29 +241,76 @@ export const renderVideo = async (
   if (video.music && !musicFile) throw new Error(`Música não encontrada: ${video.music}`);
   const hasSound = analysis.hasAudio || Boolean(musicFile);
   const q = QUALITY[quality];
-  const render = (gpuEncode: boolean) =>
-    renderMedia({
-      composition,
-      serveUrl,
-      codec: q.codec,
-      ...(gpuEncode ? {videoBitrate: q.bitrate} : {crf: q.crf}),
-      outputLocation: hasSound ? silent : output,
-      inputProps,
-      muted: true, // o som é montado à parte, logo abaixo
-      chromiumOptions, // RENDER_GL=angle: o Chrome desenha os quadros usando a placa de vídeo
-      hardwareAcceleration: gpuEncode ? 'if-possible' : 'disable', // RENDER_NVENC=1: codifica com NVIDIA
-      concurrency: config.concurrency ? (/%$/.test(config.concurrency) ? config.concurrency : Number(config.concurrency)) : undefined,
-      browserExecutable: config.browserExecutable,
-      onProgress: ({progress: p}) => progress(0.3 + 0.65 * p, 'Renderizando'),
-    });
-  await render(config.nvenc && (await nvencAvailable(path.join(clipsDir, '0.mp4'))));
 
-  // 3. Monta o áudio com o ffmpeg e junta com a imagem (sem recomprimir o vídeo).
+  const audio = path.join(clipsDir, 'audio.m4a');
+  const clipFiles = analysis.hasAudio ? segs.map((_, i) => path.join(clipsDir, `${i}.mp4`)) : [];
+  const audioPromise = hasSound ? buildAudio(inputProps, clipFiles, musicFile, audio) : Promise.resolve();
+  audioPromise.catch(() => undefined);
+
+  const gpuPromise = config.nvenc ? nvencAvailable(path.join(clipsDir, '0.mp4'), q.codec) : Promise.resolve(false);
+  const chromiumOptions: ChromiumOptions | undefined = config.gl
+    ? {
+        gl: config.gl,
+        ...(config.gl === 'angle'
+          ? {flags: {'enable-unsafe-swiftshader': true, 'ignore-gpu-blocklist': true}}
+          : {}),
+      }
+    : undefined;
+
+  const browser = await openBrowser('chrome', {
+    browserExecutable: config.browserExecutable ?? null,
+    chromiumOptions,
+  });
+
+  try {
+    const composition = await selectComposition({
+      serveUrl,
+      id: 'AutoCut',
+      inputProps,
+      puppeteerInstance: browser,
+      chromiumOptions,
+      browserExecutable: config.browserExecutable,
+    });
+
+    const resolvedConcurrency = config.concurrency
+      ? (/%$/.test(config.concurrency)
+          ? Math.max(1, Math.min(cpuCount, Math.floor((parseFloat(config.concurrency) / 100) * cpuCount)))
+          : Math.max(1, Math.min(cpuCount, Number(config.concurrency) || 1)))
+      : Math.max(1, Math.min(16, Math.floor(cpuCount * 0.75)));
+    const videoThreads = Math.max(2, Math.min(8, Math.floor(cpuCount / 2)));
+    const cacheBytes = Math.min(1024, Math.max(256, Math.floor((os.totalmem() / (1024 * 1024)) * 0.12))) * 1024 * 1024;
+
+    const gpuEncode = await gpuPromise;
+    await Promise.all([
+      renderMedia({
+        composition,
+        serveUrl,
+        codec: q.codec,
+        jpegQuality: 90,
+        ...(gpuEncode
+          ? {videoBitrate: q.bitrate}
+          : {crf: q.crf, ...(q.codec === 'h264' ? {x264Preset: quality === 'alta' ? 'faster' : 'veryfast'} : {})}),
+        outputLocation: hasSound ? silent : output,
+        inputProps,
+        muted: true, // o som é montado à parte, em paralelo
+        puppeteerInstance: browser,
+        chromiumOptions, // RENDER_GL=angle: o Chrome desenha os quadros usando a placa de vídeo
+        hardwareAcceleration: gpuEncode ? 'if-possible' : 'disable', // RENDER_NVENC: codifica com NVIDIA
+        concurrency: resolvedConcurrency,
+        offthreadVideoThreads: videoThreads,
+        offthreadVideoCacheSizeInBytes: cacheBytes,
+        browserExecutable: config.browserExecutable,
+        onProgress: ({progress: p}) => progress(0.3 + 0.65 * p, 'Renderizando'),
+      }),
+      audioPromise,
+    ]);
+  } finally {
+    await browser.close({silent: true}).catch(() => undefined);
+  }
+
+  // 3. Junta o áudio já pronto com a imagem (sem recomprimir o vídeo).
   if (hasSound) {
-    progress(0.96, 'Montando o áudio');
-    const audio = path.join(clipsDir, 'audio.m4a');
-    const clipFiles = analysis.hasAudio ? segs.map((_, i) => path.join(clipsDir, `${i}.mp4`)) : [];
-    await buildAudio(inputProps, clipFiles, musicFile, audio);
+    progress(0.96, 'Finalizando arquivo');
     await ffmpeg(['-y', '-i', silent, '-i', audio, '-map', '0:v', '-map', '1:a', '-c', 'copy',
       ...(q.codec === 'h265' ? ['-tag:v', 'hvc1'] : []), // para o H.265 abrir em aparelhos Apple
       '-movflags', '+faststart', output]);

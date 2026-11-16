@@ -59,3 +59,5 @@ header button.active { border-color:var(--accent); color:var(--accent); }
 .settings .warn { color:#ffb020; font-weight:600; }
 .settings .grid2 { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:4px 22px; }
 .ok { color:#6fd36f; margin:6px 0; }
+.ytbox { border-color:#3b3f4a; }
+.ytbox input.grow { min-width:260px; }

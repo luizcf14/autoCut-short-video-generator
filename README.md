@@ -10,7 +10,8 @@ Shorts (9:16) e o vídeo longo enxuto. O Claude decide os cortes e os textos; o 
    cria o arquivo `.env` e abre a tela no navegador (http://localhost:5173).
 3. Abra o `.env` no Bloco de Notas, cole sua chave em `ANTHROPIC_API_KEY`, confira `VIDEOS_DIR`
    e `CHANNEL_NAME`, e inicie de novo.
-4. Na tela: escolha o vídeo, clique em **Analisar vídeo**, depois **Gerar plano com o Claude**,
+4. Na tela: cole um link do YouTube para baixar o MP4 em altíssima definição (até 4K) ou
+   escolha um vídeo salvo, clique em **Analisar vídeo**, depois **Gerar plano com o Claude**,
    revise os cortes e clique em **Exportar**. Os vídeos prontos vão para a pasta `prontos`.
 
 Sem a chave da API o programa ainda funciona, mas o plano é montado só pelos picos de áudio.
